@@ -17,7 +17,7 @@ enum Token {
     #[regex("[+-]?([0-9]*[.])?[0-9]+")]
     StrFloat,
 
-    #[regex("[>^<+*/-]")]
+    #[regex("[>^<=+*/-]+")]
     StrOperation
 }
 

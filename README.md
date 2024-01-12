@@ -11,6 +11,20 @@ This project is a basic Lisp interpreter implemented in Rust, aimed primarily at
 ## Open
 - Only floats, no strings, no integer
 
+## Lisp example
+This section explains the implementation of the factorial function in Brewlis, a Lisp-like programming language. The factorial of a number is the product of all positive integers less than or equal to that number.
+
+```lisp
+(begin
+  (define factorial
+    (lambda n
+      (if (<= n 1)
+          1
+          (* n (factorial (- n 1))))))
+(factorial 5)
+)
+```
+
 ## Dependencies
 - `anyhow`: Provides idiomatic error handling.
 - `logos`: Used for lexical analysis/tokenization.
