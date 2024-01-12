@@ -1,4 +1,4 @@
-use std::{collections::HashMap, f64::consts::{PI, E}};
+use std::{collections::HashMap, f64::consts::{PI, E}, io::{stdout, stdin, Write}};
 use anyhow::{Result, anyhow};
 
 use logos::{Logos, Lexer};
@@ -125,6 +125,38 @@ fn proc(proc: &Exp, l: &List, env: &HashMap<String, Exp>) -> Result<Exp>{
                     let l0 = l[0].clone().extract_number()?;
                     Ok(Exp::Atom(Atom::Number(l0.abs())))
                 }
+                "sin" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Number(l0.sin())))
+                }
+                "cos" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Number(l0.cos())))
+                }
+                "tan" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Number(l0.tan())))
+                }
+                "sinh" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Number(l0.sinh())))
+                }
+                "cosh" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Number(l0.cosh())))
+                }
+                "tanh" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Number(l0.tanh())))
+                }
+                "exp" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Number(l0.exp())))
+                }
+                "ln" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Number(l0.ln())))
+                }
                 "begin" => {
                     Ok(l.last().ok_or(anyhow!("called 'begin' with empty list"))?.clone())
                 }
@@ -179,7 +211,7 @@ fn read_tokens<'a>(lex: &mut Lexer<'a, Token>) -> Result<Option<Exp>> {
                 },
                 Token::ParenClose => Ok(None),
                 Token::Str | Token::StrOperation => Ok(Some(Exp::Atom(Atom::Symbol(lex.slice().to_string())))),
-                Token::StrFloat => Ok(Some(Exp::Atom(Atom::Number(lex.slice().parse().unwrap())))),
+                Token::StrFloat => Ok(Some(Exp::Atom(Atom::Number(lex.slice().parse()?)))),
                 
             }
         },
@@ -215,7 +247,7 @@ fn eval(exp: &Exp, env: &mut HashMap<String, Exp>) -> Result<Exp> {
                     }
 
                 } else if sym == "define" {
-                    let symbol = l[1].clone().extract_symbol().unwrap();
+                    let symbol = l[1].clone().extract_symbol()?;
                     let exp = &l[2];
                     let result = eval(&exp, env)?;
                     env.insert(symbol.clone(), result);
@@ -237,21 +269,7 @@ fn eval(exp: &Exp, env: &mut HashMap<String, Exp>) -> Result<Exp> {
     }
 }
 
-fn _test_lexing(program: &str) {
-    let mut lex = Token::lexer(program);
-
-    loop {
-        match lex.next() {
-            Some(token) => {
-                print!("{:?}\t", token)
-            },
-            None => break,
-        }
-        println!("{}", lex.slice());
-    }
-
-}
-
+#[allow(unused)]
 fn print(exp: &Exp) {
     match exp {
         Exp::Atom(atom) => {
@@ -271,17 +289,50 @@ fn print(exp: &Exp) {
     }
 }
 
+fn repl() -> Result<()> {
+    let mut env = standard_env();
+    loop {
+        let mut s = String::new();
+        print!("> ");
+        let _=stdout().flush();
+        stdin().read_line(&mut s).expect("Did not enter a correct string");
+        if let Some('\n')=s.chars().next_back() {
+            s.pop();
+        }
+        if let Some('\r')=s.chars().next_back() {
+            s.pop();
+        }
+
+        let parsed = parse(&s);
+        match parsed {
+            Ok(parsed) => {
+                let result = eval(&parsed, &mut env);
+                match result {
+                    Ok(result) => println!("{:?}", result),
+                    Err(msg) => {
+                        println!("Evaluation error: {}", msg);
+                        continue;
+                    }
+                }
+            },
+            Err(msg) => {
+                println!("Parsing error: {}", msg);
+                continue;
+            },
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let args = std::env::args().collect::<Vec<_>>();
-    let program = if args.len() > 1 {
-        args[1].as_str()
+    if args.len() > 1 {
+        let program = args[1].as_str();
+        let mut env = standard_env();
+        let result = eval(&parse(program)?, &mut env)?;
+        println!("{:?}", result);
     } else {
-        "(begin (define r 10) (* pi (* r r)))"
+        repl()?;
     };
-
-    let mut env = standard_env();
-    let result = eval(&parse(program)?, &mut env)?;
-    println!("{:?}", result);
 
     Ok(())
 }
