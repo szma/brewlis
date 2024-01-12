@@ -1,4 +1,4 @@
-use std::{collections::HashMap, iter::Peekable, f64::consts::PI, env::{args, self}};
+use std::{collections::HashMap, f64::consts::{PI, E}};
 use anyhow::{Result, anyhow};
 
 use logos::{Logos, Lexer};
@@ -17,7 +17,7 @@ enum Token {
     #[regex("[+-]?([0-9]*[.])?[0-9]+")]
     StrFloat,
 
-    #[regex("[><+*/-]")]
+    #[regex("[>^<+*/-]")]
     StrOperation
 }
 
@@ -59,36 +59,95 @@ type Env = HashMap<String, Exp>;
 fn standard_env() -> Env {
     let mut env = Env::new();
     env.insert(String::from("pi"), Exp::Atom(Atom::Number(PI)));
+    env.insert(String::from("e"), Exp::Atom(Atom::Number(E)));
 
     env
 }
 
-fn proc(proc: &Exp, l: &List) -> Result<Exp>{
+fn proc(proc: &Exp, l: &List, env: &HashMap<String, Exp>) -> Result<Exp>{
     match proc {
         Exp::Atom(Atom::Symbol(procname)) => {
             match procname.as_str() {
+                "^" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    let l1 = l[1].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Number(l0.powf(l1))))
+                },
                 "*" => {
                     let l0 = l[0].clone().extract_number()?;
                     let l1 = l[1].clone().extract_number()?;
                     Ok(Exp::Atom(Atom::Number(l0*l1)))
+                },
+                "/" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    let l1 = l[1].clone().extract_number()?;
+                    if l1.abs() < 1e-12 {
+                        return Err(anyhow!("Division by zero"))
+                    }
+                    Ok(Exp::Atom(Atom::Number(l0/l1)))
                 },
                 "+" => {
                     let l0 = l[0].clone().extract_number()?;
                     let l1 = l[1].clone().extract_number()?;
                     Ok(Exp::Atom(Atom::Number(l0+l1)))
                 }
+                "-" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    let l1 = l[1].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Number(l0-l1)))
+                }
                 ">" => {
                     let l0 = l[0].clone().extract_number()?;
                     let l1 = l[1].clone().extract_number()?;
                     Ok(Exp::Atom(Atom::Bool(l0>l1)))
                 }
+                "<" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    let l1 = l[1].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Bool(l0<l1)))
+                }
+                ">=" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    let l1 = l[1].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Bool(l0>=l1)))
+                }
+                "<=" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    let l1 = l[1].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Bool(l0<=l1)))
+                }
+                "=" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    let l1 = l[1].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Bool(l0==l1)))
+                }
+                "abs" => {
+                    let l0 = l[0].clone().extract_number()?;
+                    Ok(Exp::Atom(Atom::Number(l0.abs())))
+                }
                 "begin" => {
-                    let l0 = l.last().unwrap().clone().extract_number()?;
-                    Ok(Exp::Atom(Atom::Number(l0)))
-                },
+                    Ok(l.last().ok_or(anyhow!("called 'begin' with empty list"))?.clone())
+                }
+                "car" => {
+                    Ok(l.first().ok_or(anyhow!("called 'car' with empty list"))?.clone())
+                }
                 _ => Err(anyhow!("{}, not in env", procname))
             }
         },
+        Exp::List(lmb_list) => {
+            let mut env = env.clone();
+            let mut funcall = List::new();
+            funcall.push(Exp::Atom(Atom::Symbol("begin".to_string())));
+            lmb_list.iter().skip(1 /* lambda */).zip(l).for_each(|(sym, value)|{
+                let mut local_define = List::new();
+                local_define.push(Exp::Atom(Atom::Symbol("define".to_string())));
+                local_define.push(sym.clone());
+                local_define.push(value.clone());
+                funcall.push(Exp::List(local_define));
+            });
+            funcall.push(lmb_list.last().ok_or(anyhow!("Error in lambda expression: No body"))?.clone());
+            Ok(eval(&Exp::List(funcall), &mut env)?)
+        }
         _ => Err(anyhow!("Syntax error at {:?}", proc))
     }
 }
@@ -103,7 +162,7 @@ fn parse(program: &str) -> Result<Exp>{
 fn read_tokens<'a>(lex: &mut Lexer<'a, Token>) -> Result<Option<Exp>> {
     match lex.next() {
         Some(token) => {
-            let token = token.map_err(|_| anyhow!("Unknown token"))?;
+            let token = token.map_err(|_| anyhow!("Unknown token: {}", lex.slice()))?;
             match token {
                 Token::ParenOpen => {
                     let mut l = Vec::new();
@@ -129,7 +188,6 @@ fn read_tokens<'a>(lex: &mut Lexer<'a, Token>) -> Result<Option<Exp>> {
 }
 
 fn eval(exp: &Exp, env: &mut HashMap<String, Exp>) -> Result<Exp> {
-    //println!("{:?}", exp);
     match exp {
         Exp::Atom(atom) => {
             match atom {
@@ -162,13 +220,15 @@ fn eval(exp: &Exp, env: &mut HashMap<String, Exp>) -> Result<Exp> {
                     let result = eval(&exp, env)?;
                     env.insert(symbol.clone(), result);
                     return Ok(Exp::Atom(Atom::Bool(true)))
+                } else if sym == "lambda" {
+                    return Ok(Exp::List(l.clone()))
                 } 
                 else {
                     let procname = eval(&l[0], env)?;
                     let args = l.iter().skip(1).map(|li| {
                         eval(li, env).unwrap()
                     }).collect::<Vec<_>>();
-                    return proc(&procname, &args);
+                    return proc(&procname, &args, &env);
                 }
             }
             Err(anyhow!("Not implemented command: {:?}", l))
@@ -177,7 +237,7 @@ fn eval(exp: &Exp, env: &mut HashMap<String, Exp>) -> Result<Exp> {
     }
 }
 
-fn test_lexing(program: &str) {
+fn _test_lexing(program: &str) {
     let mut lex = Token::lexer(program);
 
     loop {
@@ -212,15 +272,12 @@ fn print(exp: &Exp) {
 }
 
 fn main() -> Result<()> {
-    let args = env::args().collect::<Vec<_>>();
+    let args = std::env::args().collect::<Vec<_>>();
     let program = if args.len() > 1 {
         args[1].as_str()
     } else {
         "(begin (define r 10) (* pi (* r r)))"
     };
-
-    //let parse_result = parse(program).unwrap();
-    //print(&parse_result);
 
     let mut env = standard_env();
     let result = eval(&parse(program)?, &mut env)?;
